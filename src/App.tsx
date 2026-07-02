@@ -15,6 +15,9 @@ import { Project, AuditReport, Rule, ReviewType, Severity, Issue } from './types
 import { initialProjects, initialRules, prebakedReviews } from './mockData';
 import { GeminiProvider, ClaudeProvider, ChatGPTProvider } from './lib/providers';
 
+// Custom premium easing curve for silky smooth, fluid deceleration (easeOutExpo)
+const EASE_CUSTOM = [0.16, 1, 0.3, 1];
+
 export default function App() {
   const [workflowState, setWorkflowState] = useState<'landing' | 'diagnosing' | 'review'>('landing');
   const [diagnosingFile, setDiagnosingFile] = useState<{ url: string; name: string } | null>(null);
@@ -248,7 +251,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.35, ease: 'easeInOut' }}
+              transition={{ duration: 0.45, ease: EASE_CUSTOM }}
               className="flex-1 flex flex-col h-full min-h-0"
             >
               <Landing
@@ -265,7 +268,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 1.02 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.35, ease: 'easeInOut' }}
+              transition={{ duration: 0.45, ease: EASE_CUSTOM }}
               className="flex-1 flex flex-col h-full min-h-0"
             >
               <Diagnosing
@@ -281,10 +284,10 @@ export default function App() {
           {workflowState === 'review' && (
             <motion.div
               key="review"
-              initial={{ opacity: 0, y: 12 }}
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.45, ease: 'easeOut' }}
+              exit={{ opacity: 0, y: -16 }}
+              transition={{ duration: 0.55, ease: EASE_CUSTOM }}
               className="flex-1 flex flex-col h-full min-h-0"
             >
               <ReviewWorkspace

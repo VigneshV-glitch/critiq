@@ -85,6 +85,9 @@ export default function Landing({
     }
   ];
 
+  // Custom premium easing curve for silky smooth, fluid deceleration (easeOutExpo)
+  const EASE_CUSTOM = [0.16, 1, 0.3, 1];
+
   return (
     <div className="flex-1 flex flex-col h-full min-h-0 relative select-none">
       {/* Premium Minimal Header */}
@@ -134,26 +137,26 @@ export default function Landing({
           {/* Main Typography Header block */}
           <div className="space-y-3">
             <motion.div 
-              initial={{ opacity: 0, y: -10 }}
+              initial={{ opacity: 0, y: -16 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
+              transition={{ duration: 0.8, ease: EASE_CUSTOM }}
               className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-[10px] font-mono font-bold text-indigo-300 tracking-wider uppercase"
             >
               <Sparkles className="w-3 h-3 text-indigo-400" />
               Next-Gen Cognitive UX Diagnostic Engine
             </motion.div>
             <motion.h2 
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
+              transition={{ duration: 0.8, ease: EASE_CUSTOM, delay: 0.08 }}
               className="text-4xl md:text-5xl font-display font-semibold text-white tracking-tight"
             >
               Examine layouts in seconds
             </motion.h2>
             <motion.p 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, ease: EASE_CUSTOM, delay: 0.16 }}
               className="text-sm md:text-base text-slate-400 max-w-lg mx-auto leading-relaxed"
             >
               Upload a wireframe screenshot, dashboard visual, or mockup. Critiq builds a high-fidelity diagnostic scorecard using strict heuristic design rules.
@@ -162,14 +165,19 @@ export default function Landing({
 
           {/* Premium Centered Upload Zone (High-fidelity Glassmorphic Container) */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5, delay: 0.25 }}
+            initial={{ opacity: 0, y: 24, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: isDragging ? 0.99 : 1 }}
+            whileHover={{ scale: isDragging ? 0.99 : 1.005 }}
+            whileTap={{ scale: 0.985 }}
+            transition={{ 
+              scale: { duration: 0.2, ease: "easeOut" },
+              default: { duration: 0.9, ease: EASE_CUSTOM, delay: 0.24 }
+            }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             onClick={triggerFileSelect}
-            className={`w-full max-w-xl mx-auto h-64 rounded-3xl flex flex-col items-center justify-center p-8 text-center transition-all duration-300 cursor-pointer relative overflow-hidden backdrop-blur-3xl shadow-[0_32px_64px_-16px_rgba(0,0,0,0.65),inset_0_1px_1.5px_rgba(255,255,255,0.15)] border ${
+            className={`w-full max-w-xl mx-auto h-64 rounded-3xl flex flex-col items-center justify-center p-8 text-center transition-colors duration-300 cursor-pointer relative overflow-hidden backdrop-blur-3xl shadow-[0_32px_64px_-16px_rgba(0,0,0,0.65),inset_0_1px_1.5px_rgba(255,255,255,0.15)] border ${
               isDragging
                 ? 'border-indigo-400/50 bg-indigo-500/10 scale-[0.99] shadow-indigo-500/5'
                 : 'border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.01] hover:border-white/20 hover:bg-white/[0.03] shadow-black/40'
@@ -207,9 +215,9 @@ export default function Landing({
 
           {/* Elegant Sandbox Try Demos list */}
           <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.6, delay: 0.35 }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.9, ease: EASE_CUSTOM, delay: 0.32 }}
             className="w-full max-w-xl mx-auto space-y-3"
           >
             <div className="flex items-center gap-2 justify-center">
@@ -228,9 +236,9 @@ export default function Landing({
                     e.stopPropagation();
                     onSelectDemo(demo.id);
                   }}
-                  className={`p-4 bg-gradient-to-br ${demo.color} bg-black/45 hover:bg-black/75 border border-white/5 hover:border-indigo-500/30 rounded-2xl transition-all cursor-pointer flex items-start gap-3.5 text-left group`}
+                  className={`p-4 bg-gradient-to-br ${demo.color} bg-black/45 hover:bg-black/75 border border-white/5 hover:border-indigo-500/30 rounded-2xl transition-colors duration-200 cursor-pointer flex items-start gap-3.5 text-left group`}
                 >
-                  <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-md">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-200 shadow-md">
                     <ImageIcon className="w-4.5 h-4.5" />
                   </div>
                   <div className="space-y-0.5 min-w-0">
