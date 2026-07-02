@@ -1,0 +1,6 @@
+{
+  "name": "Critiq",
+  "description": "AI-powered design assistant for UI/UX reviews, heuristic audits, and design system alignment.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
