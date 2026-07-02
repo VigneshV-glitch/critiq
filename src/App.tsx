@@ -163,7 +163,7 @@ export default function App() {
   };
 
   return (
-    <div className="w-full h-screen bg-gradient-to-br from-[#02040c] via-[#040c24] to-[#000728] flex flex-col overflow-hidden font-sans text-slate-200 relative select-none">
+    <div className="w-full h-screen bg-gradient-to-br from-[#02040c] via-[#040c24] to-[#00458e] flex flex-col overflow-hidden font-sans text-slate-200 relative select-none">
       
       {/* Dynamic Glowing Spotlight - Bottom Right Corner */}
       <div 
