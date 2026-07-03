@@ -280,6 +280,43 @@ Return the completed layout parsing as a structured JSON matching the provided s
       const sanitizedComponents = ComponentDetector.sanitizeComponents(rawModel.components);
       const parentChildComponents = ComponentDetector.associateParentChild(sanitizedComponents);
       const structuredLayout = LayoutAnalyzer.processLayout(rawModel.layout);
+
+      // Sanitize the components and containers to guarantee strict validation rules succeed
+      // 1. Remove duplicate component geometries (overlapping exactly within 0.01% tolerance)
+      const uniqueComponents: any[] = [];
+      for (const comp of parentChildComponents) {
+        if (!comp || !comp.boundingBox) continue;
+        const bbox = comp.boundingBox;
+        let isDuplicate = false;
+        for (const existing of uniqueComponents) {
+          const b2 = existing.boundingBox;
+          if (b2 &&
+              Math.abs(bbox.x - b2.x) < 0.01 &&
+              Math.abs(bbox.y - b2.y) < 0.01 &&
+              Math.abs(bbox.width - b2.width) < 0.01 &&
+              Math.abs(bbox.height - b2.height) < 0.01) {
+            isDuplicate = true;
+            break;
+          }
+        }
+        if (isDuplicate) {
+          console.warn(`[Screen Analyzer] Dropping duplicate component geometry for ID: ${comp.id}`);
+          continue;
+        }
+        uniqueComponents.push(comp);
+      }
+
+      // 2. Unify container children list to refer only to existing component IDs or other container IDs
+      const existingIds = new Set<string>([
+        ...uniqueComponents.map(c => c.id),
+        ...structuredLayout.containers.map(c => c.id)
+      ]);
+      structuredLayout.containers.forEach(cont => {
+        if (Array.isArray(cont.childrenIds)) {
+          cont.childrenIds = cont.childrenIds.filter(childId => existingIds.has(childId));
+        }
+      });
+
       const visualHierarchy = HierarchyAnalyzer.processHierarchy(rawModel.hierarchy);
       const userFlow = FlowAnalyzer.processFlow(rawModel.userFlow);
 
@@ -311,7 +348,7 @@ Return the completed layout parsing as a structured JSON matching the provided s
         },
         platform: normalizedPlatform,
         layout: structuredLayout,
-        components: parentChildComponents,
+        components: uniqueComponents,
         containers: structuredLayout.containers,
         hierarchy: visualHierarchy,
         navigation: {

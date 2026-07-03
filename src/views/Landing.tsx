@@ -151,7 +151,7 @@ export default function Landing({
               transition={{ duration: 0.8, ease: EASE_CUSTOM, delay: 0.08 }}
               className="text-4xl md:text-5xl font-display font-semibold text-white tracking-tight"
             >
-              Examine layouts in seconds
+              CritiQ layouts in seconds
             </motion.h2>
             <motion.p 
               initial={{ opacity: 0, y: 16 }}
