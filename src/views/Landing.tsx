@@ -97,7 +97,7 @@ export default function Landing({
             <Sparkles className="w-4.5 h-4.5 text-white" />
           </div>
           <div>
-            <h1 className="text-sm font-display font-semibold text-white tracking-tight leading-none">Critiq Heuristics</h1>
+            <h1 className="text-sm font-display font-semibold text-white tracking-tight leading-none">CritiQ</h1>
             <span className="text-[9px] text-slate-500 font-mono tracking-wider uppercase mt-1 block">AI-Powered Inspection Node</span>
           </div>
         </div>

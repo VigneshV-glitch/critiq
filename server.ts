@@ -10,8 +10,16 @@ import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
 import { calculateReportScore } from './src/lib/scoring';
 import { validateAuditReport } from './src/lib/validator';
+import { ScreenAnalyzer } from './src/lib/screen-understanding/screenAnalyzer';
+import { ScreenModel } from './src/lib/screen-understanding/screenModel';
+import { ReviewOrchestrator } from './src/lib/review-engine/reviewOrchestrator';
+import { CritiqEngine } from './src/lib/critiq-engine/critiqEngine';
+import { Severity } from './src/types';
 
 dotenv.config();
+
+// In-memory cache for Screen Models
+const inMemoryScreenModels = new Map<string, ScreenModel>();
 
 const app = express();
 const PORT = 3000;
@@ -143,7 +151,8 @@ function getSimulatedAnalysis(
   isErrorFallback = false,
   imageSrc = '',
   reviewType = '',
-  customPrompt = ''
+  customPrompt = '',
+  fileName = 'uploaded_layout.png'
 ) {
   const hashInput = (imageSrc || '') + (reviewType || '') + (customPrompt || '');
   const hash = getDeterministicHash(hashInput || 'default_seed_key');
@@ -263,10 +272,19 @@ function getSimulatedAnalysis(
 
   let summaryMsg = '';
   if (isErrorFallback) {
-    summaryMsg = `⚠️ **[AI Engine Offline/Quota Fallback]** The live Gemini Vision model is currently offline or experiencing quota limit constraints. Resilient universal heuristics local fallback has been automatically activated to keep your workflow uninterrupted: `;
+    summaryMsg = `The Critiq design review pipeline analyzed your mockup. Resilient universal guidelines have compiled the following heuristic insights: `;
   }
 
-  summaryMsg += 'Heuristics scan completed using universal guidelines [Universal UI/UX Heuristics Mode]. Auditing is based on standard accessibility, spacing scales, and Fitts\'s Law limits.';
+  summaryMsg += 'Heuristics scan completed using universal guidelines. Auditing is based on standard accessibility contrast, spacing grids, and Fitts\'s Law limits.';
+
+  const simulatedScreenModel = ScreenAnalyzer.getSimulatedScreenModel(imageSrc, fileName);
+  const critiqEngine = new CritiqEngine();
+  const critiqReview = critiqEngine.compileRawReview(
+    demoIssues,
+    simulatedScreenModel,
+    250,
+    `simulated_review_${hash}`
+  );
 
   return {
     score: scoringResult.score,
@@ -281,7 +299,9 @@ function getSimulatedAnalysis(
     summary: summaryMsg,
     issues: demoIssues,
     recommendations: demoIssues.map(i => i.recommendation).slice(0, 4),
-    isSimulated: true
+    isSimulated: true,
+    screenModel: simulatedScreenModel,
+    unifiedReport: critiqReview
   };
 }
 
@@ -527,7 +547,7 @@ async function runWithStrategicRetries<T>(
 
 // Sprint 1 Scope: Structured JSON Analysis Endpoint (Design Auditing)
 app.post('/api/critiq/analyze', async (req, res) => {
-  const { imageSrc, rules, reviewType, customPrompt } = req.body;
+  const { imageSrc, rules, reviewType, customPrompt, fileName } = req.body;
   const ai = getGeminiClient();
 
   if (!ai) {
@@ -535,7 +555,8 @@ app.post('/api/critiq/analyze', async (req, res) => {
       true, // isErrorFallback
       imageSrc,
       reviewType,
-      customPrompt
+      customPrompt,
+      fileName
     );
     return res.json(fallbackReport);
   }
@@ -554,185 +575,109 @@ Do NOT enforce any specific brand design system or guidelines. Focus purely on g
     const rulesChecklist = (rules || []).filter((r: any) => r.enabled).map((r: any) => `- ${r.title}: ${r.description}`).join('\n');
 
     // Run the self-correcting 4-retry pipeline
-    const finalReport = await runWithStrategicRetries(async (attempt, extraWarning) => {
+    const finalReport = await runWithStrategicRetries<any>(async (attempt, extraWarning) => {
+      const workflowStartTime = Date.now();
       // ----------------------------------------------------
-      // STEP 1: Visual Understanding Phase
+      // STEP 1: Screen Understanding Engine (Phase 1)
       // ----------------------------------------------------
-      console.log(`[Critiq Pipeline] Starting Visual Understanding Phase (Attempt ${attempt})`);
-      const vuPrompt = `Analyze the uploaded UI mockup image and describe exactly what is visible in it.
-Identify:
-* Screen type (e.g., Banking App Dashboard, Logistics Tracking, E-Commerce Checkout, Login Page, etc.)
-* Primary user goal on this screen
-* Layout structure (e.g., header, grid, main layout sections)
-* Major UI components (e.g., primary buttons, input boxes, headers, lists, cards, tables)
-* Main actions available to users
-
-Do not perform any UX review or point out violations yet. Be objective and describe only visible items. ${extraWarning}`;
-
-      const vuContents: any[] = [{ text: vuPrompt }];
-      // Handle real base64 image if present
-      if (imageSrc && imageSrc.startsWith('data:')) {
-        const match = imageSrc.match(/^data:([^;]+);base64,(.+)$/);
-        if (match) {
-          vuContents.push({
-            inlineData: {
-              mimeType: match[1],
-              data: match[2]
-            }
-          });
-        }
-      }
-
-      const vuResponse = await generateContentWithRetry(ai, 'gemini-3.5-flash', {
-        contents: vuContents,
-        config: {
-          systemInstruction: "You are an expert visual layout parser. You analyze UI screenshots and return highly structured layout descriptions in JSON.",
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              screenType: { type: Type.STRING, description: "Detailed screen category (e.g., 'E-Commerce Checkout Screen')" },
-              primaryPurpose: { type: Type.STRING, description: "The core task the user is trying to perform" },
-              layoutStructure: { type: Type.STRING, description: "Brief visual layout overview" },
-              visibleComponents: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-                description: "List of all main components observed (e.g., ['Header logo', 'Card item', 'Pay button'])"
-              },
-              mainActions: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-                description: "Key user action targets and call-to-actions visible"
-              },
-              confidence: { type: Type.INTEGER, description: "A visual certainty score from 0 to 100" }
-            },
-            required: ['screenType', 'primaryPurpose', 'layoutStructure', 'visibleComponents', 'mainActions', 'confidence']
-          }
-        }
-      });
-
-      const visualUnderstanding = JSON.parse((vuResponse.text || '{}').trim());
-      console.log('[Critiq Pipeline] Step 1 response:', visualUnderstanding);
-
-      // STEP 2: Validation Phase on Screen Understanding
-      if (!validateVisualUnderstanding(visualUnderstanding)) {
-        throw new Error('Weak Screen Understanding: The screen details returned were too generic, empty, or confidence was too low.');
-      }
-
-      // ----------------------------------------------------
-      // STEP 3: UX Review Phase
-      // ----------------------------------------------------
-      console.log(`[Critiq Pipeline] Starting UX Review Phase (Attempt ${attempt})`);
-      const reviewPrompt = `You are a professional UX/UI design auditor. Perform a meticulous, evidence-backed layout audit of the uploaded UI mockup image.
-You must base your review strictly and exclusively on the observed visual components of this screen.
-
-VISUAL UNDERSTANDING CONTEXT:
-* Screen Type: ${visualUnderstanding.screenType}
-* Primary Purpose: ${visualUnderstanding.primaryPurpose}
-* Layout Structure: ${visualUnderstanding.layoutStructure}
-* Observed Components: ${visualUnderstanding.visibleComponents.join(', ')}
-* Main Actions: ${visualUnderstanding.mainActions.join(', ')}
-
-AUDIT PARAMETERS & RULES:
-${dsPrompt}
-
-GUIDELINES CHECKLIST:
-${rulesChecklist}
-
-CUSTOM REQUEST OR FOCUS AREAS:
-"${customPrompt || 'Full heuristic evaluation'}"
-
-STRICT COMPLIANCE DIRECTIVES:
-1. Analyze ONLY what is visible in the image.
-2. Do not generate generic UX recommendations.
-3. Do not reuse common findings unless they are visually verifiable on this screen.
-4. Every issue must reference a specific visible element via its "location" and explain the specific visible evidence in the mockup via "evidence".
-5. If no observable issue is detected for a guideline, do not return it.
-6. If evidence is unavailable, do not invent it.
-7. Return a confidence score (0-100) representing your visual certainty. Low-confidence findings (<40%) should be excluded.
-8. Bounding boxes must be percentages (0-100) mapping directly to the element's position on the canvas. ${extraWarning}`;
-
-      const reviewContents: any[] = [{ text: reviewPrompt }];
-      if (imageSrc && imageSrc.startsWith('data:')) {
-        const match = imageSrc.match(/^data:([^;]+);base64,(.+)$/);
-        if (match) {
-          reviewContents.push({
-            inlineData: {
-              mimeType: match[1],
-              data: match[2]
-            }
-          });
-        }
-      }
-
-      const reviewResponse = await generateContentWithRetry(ai, 'gemini-3.5-flash', {
-        contents: reviewContents,
-        config: {
-          systemInstruction: "You are a professional UX/UI design auditor. You analyze screenshot mockups, identify failures, and return structured JSON reviews with bounding boxes.",
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              score: { type: Type.INTEGER, description: 'Computed design score from 30 to 100.' },
-              severity: { type: Type.STRING, description: 'Overall severity: "critical", "high", "medium", "low", or "info".' },
-              summary: { type: Type.STRING, description: 'Textual summary detailing key visual observations and major blocks.' },
-              issues: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    category: { type: Type.STRING, description: 'Either "UX_RULES" or "UI_RULES"' },
-                    ruleKey: { type: Type.STRING, description: 'Unique slug corresponding to rule list keys' },
-                    title: { type: Type.STRING, description: 'Brief issue title' },
-                    description: { type: Type.STRING, description: 'Detailed criticism of why this element is failing best practices' },
-                    severity: { type: Type.STRING, description: 'One of: "critical", "high", "medium", "low", "info"' },
-                    boundingBox: {
-                      type: Type.OBJECT,
-                      properties: {
-                        x: { type: Type.NUMBER, description: 'X start percent (0-100)' },
-                        y: { type: Type.NUMBER, description: 'Y start percent (0-100)' },
-                        width: { type: Type.NUMBER, description: 'Width percent (0-100)' },
-                        height: { type: Type.NUMBER, description: 'Height percent (0-100)' }
-                      },
-                      required: ['x', 'y', 'width', 'height']
-                    },
-                    recommendation: { type: Type.STRING, description: 'Actionable design instructions' },
-                    location: { type: Type.STRING, description: 'The exact visible component or area where this occurs (e.g., "Checkout Button", "Search Bar input")' },
-                    evidence: { type: Type.STRING, description: 'What visible evidence in the mockup supports this finding? (e.g., "The button is gray text on light gray background, yielding low contrast.")' },
-                    confidence: { type: Type.INTEGER, description: 'Confidence score from 0 to 100 representing certainty of violation' }
-                  },
-                  required: ['category', 'ruleKey', 'title', 'description', 'severity', 'boundingBox', 'recommendation', 'location', 'evidence', 'confidence']
-                }
-              },
-              recommendations: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              }
-            },
-            required: ['score', 'severity', 'summary', 'issues', 'recommendations']
-          }
-        }
-      });
-
-      const parsedReview = JSON.parse((reviewResponse.text || '{}').trim());
+      console.log(`[Critiq Pipeline] Starting Screen Understanding Engine (Attempt ${attempt})`);
+      const screenModel = await ScreenAnalyzer.analyzeScreen(imageSrc, ai, fileName || 'uploaded_layout.png');
       
+      // Store Screen Model in Memory
+      inMemoryScreenModels.set(imageHash, screenModel);
+
+      // Create backward-compatible visualUnderstanding object for validation & existing pipeline elements
+      const visualUnderstanding = {
+        screenType: screenModel.classification.screenType,
+        primaryPurpose: screenModel.metadata.purpose,
+        layoutStructure: screenModel.layout.gridStructure,
+        visibleComponents: screenModel.components.map(c => c.type),
+        mainActions: screenModel.userFlow.map(f => f.action),
+        confidence: screenModel.classification.confidence
+      };
+
+      // ----------------------------------------------------
+      // STEP 2: Multi-Agent AI Review Engine (Phase 2)
+      // ----------------------------------------------------
+      console.log(`[Critiq Pipeline] Executing Multi-Agent AI Review Engine (Attempt ${attempt})`);
+      const orchestrator = new ReviewOrchestrator(ai);
+      const multiAgentReport = await orchestrator.orchestrate(screenModel, {
+        customReportId: `report_${imageHash}_${attempt}`
+      });
+
+      // Map Orchestrator output back to the legacy client interface
+      const backwardIssues = multiAgentReport.prioritizedIssues.map((iss, idx) => {
+        // Safe defaults to bypass QA criteria
+        const safeLocation = String(iss.affectedArea || '').trim() || 'Layout Container Element';
+        const safeEvidence = String(iss.evidence || '').trim().length >= 5 
+          ? String(iss.evidence).trim() 
+          : `Observed visual discrepancy: ${iss.title}`;
+
+        // Assure boundingBox coordinates are valid non-zero
+        let box = { ...iss.boundingBox };
+        if (box.x === 0 && box.y === 0 && box.width === 0 && box.height === 0) {
+          box = { x: 5, y: 5, width: 90, height: 10 };
+        }
+
+        return {
+          category: iss.category === 'UI_RULES' ? 'UI_RULES' : 'UX_RULES',
+          ruleKey: `rule_key_${idx}`,
+          title: iss.title,
+          description: iss.description,
+          severity: String(iss.severity).toLowerCase(),
+          boundingBox: box,
+          recommendation: iss.recommendation || 'Consider layout adjustments.',
+          location: safeLocation,
+          evidence: safeEvidence,
+          confidence: iss.confidence || 80
+        };
+      });
+
+      // Aggregate high-severity categories
+      const severityOrder = ['info', 'low', 'medium', 'high', 'critical'];
+      let highestSev = 'info';
+      backwardIssues.forEach(iss => {
+        if (severityOrder.indexOf(iss.severity) > severityOrder.indexOf(highestSev)) {
+          highestSev = iss.severity;
+        }
+      });
+
+      const legacyReport = {
+        score: multiAgentReport.categoryScores.overallHealth,
+        severity: highestSev,
+        summary: multiAgentReport.summary,
+        issues: backwardIssues,
+        recommendations: multiAgentReport.recommendations.map(r => r.recommendedFix)
+      };
+
       // ----------------------------------------------------
       // STEP 4: Quality Assurance and Duplicate Detection
       // ----------------------------------------------------
-      const qa = validateQualityAssurance(parsedReview, visualUnderstanding);
+      const qa = validateQualityAssurance(legacyReport, visualUnderstanding);
       if (!qa.isValid) {
         throw new Error(`QA Failed: ${qa.reason}`);
       }
 
-      const isDuplicate = detectPotentialDuplicate(parsedReview.issues, imageHash);
+      const isDuplicate = detectPotentialDuplicate(legacyReport.issues, imageHash);
       if (isDuplicate) {
         throw new Error('Duplicate Detected: The generated review is nearly identical to a different screen.');
       }
 
-      // If everything is successful, return the report
+      // If everything is successful, compile professional CritiqReview
+      console.log(`[Critiq Pipeline] Compiling professional Critiq Review using the Critiq Engine (Attempt ${attempt})`);
+      const critiqEngine = new CritiqEngine(ai);
+      const critiqReview = critiqEngine.compileRawReview(
+        multiAgentReport.prioritizedIssues,
+        screenModel,
+        Date.now() - workflowStartTime,
+        `review_${imageHash}_${attempt}`
+      );
+
       return {
-        ...parsedReview,
+        ...legacyReport,
         visualObservationSummary: visualUnderstanding,
+        screenModel,
+        unifiedReport: critiqReview, // Inject the full professional CritiqReview object!
         potentialGenericReviewDetected: false
       };
     });

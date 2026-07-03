@@ -72,6 +72,7 @@ export default function Diagnosing({
             imageSrc,
             rules,
             reviewType,
+            fileName,
           })
         });
 
@@ -112,6 +113,7 @@ export default function Diagnosing({
             recommendations: data.recommendations || [],
             createdAt: new Date().toISOString(),
             visualObservationSummary: data.visualObservationSummary,
+            screenModel: data.screenModel,
             isUnavailable: false
           });
         }

@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { ScreenModel } from './lib/screen-understanding/screenModel';
+
 export enum ReviewType {
   UX_HEURISTICS = 'UX_HEURISTICS',
   UI_GUIDELINES = 'UI_GUIDELINES',
@@ -50,6 +52,7 @@ export interface AuditReport {
   createdAt: string;
   isUnavailable?: boolean;
   visualObservationSummary?: any;
+  screenModel?: ScreenModel;
   scoreBreakdown?: {
     visualDesign: number;
     usability: number;

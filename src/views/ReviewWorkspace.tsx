@@ -1,48 +1,66 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
+  ArrowLeft, 
+  Settings, 
   Sparkles, 
-  Layers, 
-  ZoomIn, 
-  ZoomOut, 
-  CheckCircle, 
-  AlertCircle, 
+  Sliders, 
+  X, 
+  Plus, 
+  Cpu, 
+  Eye, 
+  FileText, 
   Send, 
-  Grid,
+  Lightbulb,
+  CheckCircle,
   HelpCircle,
   AlertTriangle,
-  Lightbulb,
-  Sliders,
-  Settings,
-  X,
-  Check,
-  ChevronRight,
-  ArrowLeft,
-  ChevronDown,
-  Cpu,
-  Trash2,
-  SlidersHorizontal,
-  Info
+  Bookmark
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Project, AuditReport, Rule, ReviewType, Issue, ChatMessage } from '../types';
-import { calculateReportScore } from '../lib/scoring';
+
+// Type Definitions
+import { AuditReport, ReviewType, Issue, Project, Rule } from '../types';
+import { ScreenModel } from '../lib/screen-understanding/screenModel';
+import { CritiqReview, CritiqIssue, IssueSeverity } from '../lib/critiq-engine/types';
+import { ReviewProcessor } from '../lib/critiq-engine/reviewProcessor';
+
+// State Stores
+import { useSelectionStore, selectionActions } from '../features/review-workspace/state/selectionStore';
+import { useZoomStore, zoomActions } from '../features/review-workspace/state/zoomStore';
+import { useCanvasStore, canvasActions } from '../features/review-workspace/state/canvasStore';
+import { useFilterStore, filterActions } from '../features/review-workspace/state/filterStore';
+import { useIssueStore, issueActions } from '../features/review-workspace/state/issueStore';
+
+// Canvas Components
+import IssueCanvas from '../features/review-workspace/canvas/IssueCanvas';
+import ZoomControls from '../features/review-workspace/canvas/ZoomControls';
+import MiniMap from '../features/review-workspace/canvas/MiniMap';
+import SelectionLayer from '../features/review-workspace/canvas/SelectionLayer';
+import CanvasControls from '../features/review-workspace/canvas/CanvasControls';
+
+// Sidebar Components
+import IssueSidebar from '../features/review-workspace/sidebar/IssueSidebar';
+import IssueFilters from '../features/review-workspace/sidebar/IssueFilters';
+import IssueSearch from '../features/review-workspace/sidebar/IssueSearch';
 
 interface ReviewWorkspaceProps {
-  project: Project | null;
+  project: Project;
   rules: Rule[];
-  activeReport: AuditReport | null;
+  activeReport: AuditReport;
   activeProvider: string;
-  onSelectProvider: (key: string) => void;
+  onSelectProvider: (provider: string) => void;
   onToggleRule: (key: string) => void;
   onUpdateWeight: (key: string, weight: number) => void;
-  onRunAudit: (reviewType: ReviewType, customPrompt?: string) => void;
-  onAddCustomIssue: (issue: Omit<Issue, 'id'>) => void;
+  onRunAudit: (type: ReviewType, customPrompt?: string) => Promise<void>;
+  onAddCustomIssue: (issue: Omit<Issue, 'id' | 'confidence'>) => void;
   onCloseWorkspace: () => void;
+}
+
+interface ChatMessage {
+  id: string;
+  sender: 'user' | 'assistant';
+  text: string;
+  timestamp: string;
 }
 
 export default function ReviewWorkspace({
@@ -57,68 +75,77 @@ export default function ReviewWorkspace({
   onAddCustomIssue,
   onCloseWorkspace
 }: ReviewWorkspaceProps) {
-  const [reviewType, setReviewType] = useState<ReviewType>(ReviewType.FULL_AUDIT);
-  const [zoom, setZoom] = useState<number>(100);
-  const [showGridOverlay, setShowGridOverlay] = useState<boolean>(false);
+  // Legacy / Local UI states
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [reviewType, setReviewType] = useState<ReviewType>(ReviewType.FULL_AUDIT);
   const [showSettingsDrawer, setShowSettingsDrawer] = useState<boolean>(false);
-  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
-    visualDesign: true,
-    usability: false,
-    accessibility: false,
-    consistency: false
-  });
+  
+  // Custom Configuration Rules States
+  const [contrastThreshold, setContrastThreshold] = useState<number>(4.5);
+  const [minTouchTargetSize, setMinTouchTargetSize] = useState<number>(44);
+  const [strictGridRules, setStrictGridRules] = useState<boolean>(true);
+  const [heirarchyRulesVersion, setHierarchyRulesVersion] = useState<string>('wcag-2.1');
 
-  const getIssueCategory = (issue: Issue): 'visualDesign' | 'usability' | 'accessibility' | 'consistency' => {
-    const key = (issue.ruleKey || '').toLowerCase();
-    const title = (issue.title || '').toLowerCase();
-    const desc = (issue.description || '').toLowerCase();
+  // Access reactive state stores
+  const { selectedIssueId: storeSelectedIssueId } = useSelectionStore();
+  const { scale } = useZoomStore();
 
-    if (
-      key.includes('contrast') || title.includes('contrast') || desc.includes('contrast') ||
-      key.includes('accessibility') || title.includes('accessibility') || desc.includes('accessibility') ||
-      key.includes('wcag') || title.includes('wcag') || desc.includes('wcag') ||
-      key.includes('readability') || title.includes('readability') || desc.includes('readability') ||
-      key.includes('focus') || title.includes('focus') || desc.includes('focus') ||
-      key.includes('color_dependency') || key.includes('color-dependency') ||
-      title.includes('color dependency') || desc.includes('color dependency') ||
-      key.includes('touch') || title.includes('touch') || desc.includes('touch') ||
-      title.includes('target size') || desc.includes('target size')
-    ) {
-      return 'accessibility';
+  // Sync selection store back to legacy component states
+  useEffect(() => {
+    setSelectedIssueId(storeSelectedIssueId);
+  }, [storeSelectedIssueId]);
+
+  // Seed / Reset stores when active critiqReview changes
+  useEffect(() => {
+    if (critiqReview) {
+      selectionActions.clearSelection();
+      zoomActions.setScale(1.0);
+      canvasActions.resetPan();
+      issueActions.resetIssues();
+      filterActions.resetFilters();
+    }
+  }, [activeReport]);
+
+  // Compiled professional Critiq Review Object Hook
+  const critiqReview: CritiqReview | null = React.useMemo(() => {
+    if (!activeReport) return null;
+    
+    if ((activeReport as any).unifiedReport && ((activeReport as any).unifiedReport as any).issues) {
+      return (activeReport as any).unifiedReport as any as CritiqReview;
     }
     
-    if (
-      key.includes('consistency') || title.includes('consistency') || desc.includes('consistency') ||
-      key.includes('spacing_grid') || key.includes('grid') || title.includes('grid') || desc.includes('grid') ||
-      key.includes('design_system') || key.includes('design-system') || title.includes('design system') || desc.includes('design system') ||
-      key.includes('brand') || title.includes('brand') || desc.includes('brand') ||
-      title.includes('spacing deviation') || desc.includes('spacing deviation') ||
-      key.includes('reuse') || title.includes('reuse') || desc.includes('reuse')
-    ) {
-      return 'consistency';
-    }
+    const mockScreenModel: ScreenModel = (activeReport as any).screenModel || ({
+      platform: 'Web' as any,
+      classification: { screenType: 'Dashboard' as any, confidence: 94 },
+      metadata: { screenName: 'Mock Screen', purpose: activeReport.summary || 'Uploaded visual interface.', estimatedComplexity: 'medium', businessDomain: 'SaaS', industry: 'General', targetUsers: 'All', estimatedUserGoal: 'Learn' },
+      layout: { columns: 12, gridStructure: 'Symmetric Container Layout Grid', containers: [], alignment: 'center', spacingPattern: 'Standard', margins: { top: 16, bottom: 16, left: 16, right: 16 }, sections: [] },
+      components: [],
+      containers: [],
+      hierarchy: { mostProminentElement: '', readingOrder: [], visualFlow: 'Single Column', attentionHotspots: [], hierarchyScore: 90 },
+      navigation: { hasPersistentNav: false, navType: 'none', navElements: [] },
+      userFlow: [],
+      designSystem: { detectedSystem: 'Custom Design System' as any, confidence: 90 },
+      detectedIssues: [],
+      reviewResults: [],
+      confidenceScores: { classification: 90, components: 90, layout: 90, hierarchy: 90, global: 90 },
+      timestamp: new Date().toISOString(),
+      version: '2.0.0'
+    } as any as ScreenModel);
+    
+    const rawIssues = (activeReport.issues || []).map((iss, idx) => ({
+      id: iss.id || `iss_${idx}`,
+      title: iss.title,
+      description: iss.description,
+      boundingBox: iss.boundingBox || { x: 10, y: 10, width: 20, height: 10 },
+      severity: iss.severity as any,
+      confidence: iss.confidence || 85,
+      evidence: [iss.description],
+      recommendation: iss.recommendation || 'Consider layout adjustments.'
+    }));
 
-    if (
-      key.includes('usability') || title.includes('usability') || desc.includes('usability') ||
-      key.includes('heuristic') || title.includes('heuristic') || desc.includes('heuristic') ||
-      key.includes('fitts') || title.includes('fitts') || desc.includes('fitts') ||
-      key.includes('hick') || title.includes('hick') || desc.includes('hick') ||
-      key.includes('friction') || title.includes('friction') || desc.includes('friction') ||
-      key.includes('workflow') || title.includes('workflow') || desc.includes('workflow') ||
-      key.includes('navigation') || title.includes('navigation') || desc.includes('navigation') ||
-      key.includes('cognitive') || title.includes('cognitive') || desc.includes('cognitive') ||
-      key.includes('efficiency') || title.includes('efficiency') || desc.includes('efficiency') ||
-      key.includes('control') || title.includes('control') || desc.includes('control') ||
-      key.includes('error_prevention') || title.includes('error prevention') || desc.includes('error prevention')
-    ) {
-      return 'usability';
-    }
+    return ReviewProcessor.process(rawIssues, mockScreenModel, 420, activeReport.id);
+  }, [activeReport]);
 
-    return 'visualDesign';
-  };
-
-  
   // Chatbot states
   const [chatInput, setChatInput] = useState<string>('');
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([
@@ -131,83 +158,7 @@ export default function ReviewWorkspace({
   ]);
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
 
-  const getSeverityStyle = (severity: 'low' | 'medium' | 'high' | 'critical' | 'info') => {
-    switch (severity) {
-      case 'critical':
-        return {
-          bg: 'bg-rose-600',
-          text: 'text-white',
-          border: 'border-rose-500/30',
-          badgeBg: 'bg-rose-500/15 text-rose-300 border border-rose-500/25',
-          pingBg: 'bg-rose-600/40',
-        };
-      case 'high':
-        return {
-          bg: 'bg-red-500',
-          text: 'text-white',
-          border: 'border-red-500/30',
-          badgeBg: 'bg-red-500/15 text-red-300 border border-red-500/25',
-          pingBg: 'bg-red-500/40',
-        };
-      case 'medium':
-        return {
-          bg: 'bg-amber-500',
-          text: 'text-white',
-          border: 'border-amber-500/30',
-          badgeBg: 'bg-amber-500/15 text-amber-300 border border-amber-500/25',
-          pingBg: 'bg-amber-500/40',
-        };
-      case 'low':
-        return {
-          bg: 'bg-indigo-500',
-          text: 'text-white',
-          border: 'border-indigo-500/30',
-          badgeBg: 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/25',
-          pingBg: 'bg-indigo-500/40',
-        };
-      case 'info':
-      default:
-        return {
-          bg: 'bg-sky-500',
-          text: 'text-white',
-          border: 'border-sky-500/30',
-          badgeBg: 'bg-sky-500/15 text-sky-300 border border-sky-500/25',
-          pingBg: 'bg-sky-500/40',
-        };
-    }
-  };
-
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
-
-  useEffect(() => {
-    if (activeReport && activeReport.imageUrl) {
-      const img = new Image();
-      img.src = activeReport.imageUrl;
-      img.onload = () => {
-        setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight });
-      };
-    } else {
-      setImageDimensions(null);
-    }
-  }, [activeReport]);
-
-  let canvasWidth = 320;
-  let canvasHeight = 480;
-
-  if (imageDimensions) {
-    const ar = imageDimensions.width / imageDimensions.height;
-    if (ar <= 0.75) {
-      canvasWidth = 320;
-      canvasHeight = Math.round(320 / ar);
-    } else if (ar >= 1.5) {
-      canvasWidth = 600;
-      canvasHeight = Math.round(600 / ar);
-    } else {
-      canvasWidth = 420;
-      canvasHeight = Math.round(420 / ar);
-    }
-  }
 
   // Auto scroll chat
   useEffect(() => {
@@ -243,10 +194,6 @@ export default function ReviewWorkspace({
           history: chatHistory.slice(-10)
         })
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to chat: ${response.statusText}`);
-      }
 
       const result = await response.json();
 
@@ -289,6 +236,17 @@ export default function ReviewWorkspace({
     } finally {
       setIsChatLoading(false);
     }
+  };
+
+  const handleExportReport = () => {
+    if (!critiqReview) return;
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(critiqReview, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `critiq_review_${critiqReview.metadata.reviewId || 'report'}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
   };
 
   const handleRunFullAudit = () => {
@@ -348,519 +306,148 @@ export default function ReviewWorkspace({
         </div>
       </header>
 
-      {/* Main Workspace Frame */}
+      {/* Main Workspace Frame with Selection Shortcuts Listener */}
+      <SelectionLayer filteredIssues={critiqReview?.issues || []} />
+      
       <div className="flex-1 flex overflow-hidden min-h-0 relative">
-        
-        {/* CENTER: Interactive Design Canvas with scale & overlays */}
-        <div className="flex-1 bg-black/10 flex flex-col items-center justify-center relative p-6 overflow-hidden">
           
-          {/* Grid Overlay Controls (Top left) */}
-          <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
-            <button
-              onClick={() => setZoom(prev => Math.max(50, prev - 25))}
-              className="p-2 bg-black/60 hover:bg-black/85 rounded-xl text-slate-300 border border-white/5 transition-colors"
-              title="Zoom Out"
-            >
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <span className="px-3 py-1.5 bg-black/60 rounded-xl text-xs font-mono text-white border border-white/5 min-w-[50px] text-center">
-              {zoom}%
-            </span>
-            <button
-              onClick={() => setZoom(prev => Math.min(200, prev + 25))}
-              className="p-2 bg-black/60 hover:bg-black/85 rounded-xl text-slate-300 border border-white/5 transition-colors"
-              title="Zoom In"
-            >
-              <ZoomIn className="w-4 h-4" />
-            </button>
-          </div>
+          {/* LEFT COLUMN: Controls & Heuristics Presets */}
+          <aside className="w-72 border-r border-white/5 bg-[#08080c] flex flex-col p-4 space-y-4 overflow-y-auto shrink-0 z-10 custom-scrollbar">
+            <IssueSearch />
+            <IssueFilters />
+          </aside>
 
-          <div className="absolute top-4 right-4 z-20 flex gap-2">
-            <button
-              onClick={() => setShowGridOverlay(!showGridOverlay)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border ${
-                showGridOverlay 
-                  ? 'bg-indigo-600/30 text-indigo-200 border-indigo-400/30' 
-                  : 'bg-black/60 text-slate-300 border-white/5 hover:bg-black/85'
-              }`}
-            >
-              <Grid className="w-4 h-4" />
-              <span>{showGridOverlay ? '8px Grid: ON' : 'Show Spacing Grid'}</span>
-            </button>
-          </div>
-
-          {/* Scale stage viewport */}
-          <div className="w-full h-full flex items-center justify-center overflow-auto custom-scrollbar p-6">
-            <div 
-              style={{ 
-                transform: `scale(${zoom / 100})`, 
-                transformOrigin: 'center center',
-                width: `${canvasWidth}px`,
-                height: `${canvasHeight}px`
-              }}
-              className="bg-[#0b0c10] rounded-[32px] border-4 border-slate-800/80 shadow-2xl relative overflow-hidden transition-transform duration-200 shrink-0 select-none"
-            >
-              {/* Spacing alignment grids */}
-              {showGridOverlay && (
-                <div className="absolute inset-0 pointer-events-none z-10 grid grid-cols-12 grid-rows-12 gap-px bg-transparent opacity-20">
-                  {Array.from({ length: 144 }).map((_, idx) => (
-                    <div key={idx} className="border border-indigo-500/20"></div>
-                  ))}
-                </div>
-              )}
-
-              {/* Render either uploaded screen or sandbox wireframe */}
-              {activeReport && activeReport.imageUrl ? (
-                <img 
-                  src={activeReport.imageUrl} 
-                  alt="Review wireframe" 
-                  className={`w-full h-full object-cover pointer-events-none transition-all duration-300 ${
-                    activeReport.isUnavailable ? 'blur-md brightness-[0.25]' : ''
-                  }`}
-                />
-              ) : (
-                <div className="p-6 space-y-4 h-full flex flex-col select-none text-left justify-center items-center text-slate-500">
-                  <Layers className="w-10 h-10 text-slate-700 animate-pulse mb-2" />
-                  <span className="text-xs font-mono">Drawing interface context...</span>
-                </div>
-              )}
-
-              {/* Interactive Bounding Hotspot Overlays */}
-              {activeReport && !activeReport.isUnavailable && activeReport.issues.map((issue, idx) => {
-                const isSelected = selectedIssueId === issue.id;
-                const style = getSeverityStyle(issue.severity);
-                return (
-                  <div
-                    key={issue.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedIssueId(isSelected ? null : issue.id);
-                    }}
-                    style={{ 
-                      left: `${issue.boundingBox.x}%`, 
-                      top: `${issue.boundingBox.y}%` 
-                    }}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 z-20 cursor-pointer group"
-                  >
-                    <div className="relative w-8 h-8 flex items-center justify-center">
-                      <div className={`absolute w-full h-full rounded-full animate-ping opacity-75 ${style.pingBg}`} />
-                      <div className={`w-6 h-6 text-[10px] font-mono font-bold rounded-full border border-white flex items-center justify-center z-10 transition-all ${
-                        isSelected ? 'scale-125 shadow-2xl bg-indigo-600' : `${style.bg}`
-                      } text-white`}>
-                        {idx + 1}
-                      </div>
-
-                      {/* Floating tooltip annotation */}
-                      <div className="absolute left-1/2 -translate-x-1/2 bottom-9 scale-0 group-hover:scale-100 transition-transform z-30 bg-black/90 backdrop-blur-md text-[9px] text-slate-200 py-1.5 px-2.5 rounded-lg border border-white/5 whitespace-nowrap shadow-xl">
-                        {issue.title}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* AI Temporarily Unavailable Retry Dialog */}
-              {activeReport?.isUnavailable && (
-                <div className="absolute inset-0 bg-black/45 backdrop-blur-[2px] flex items-center justify-center p-6 z-30 pointer-events-auto">
-                  <div className="bg-[#0e0e12] max-w-[300px] w-full p-5 rounded-2xl border border-amber-500/25 shadow-2xl space-y-4 text-center">
-                    <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto text-amber-400">
-                      <AlertTriangle className="w-5 h-5 animate-pulse" />
-                    </div>
-                    <div className="space-y-1">
-                      <h4 className="text-[11px] font-bold text-white tracking-wide uppercase font-mono">AI Review Unavailable</h4>
-                      <p className="text-[10px] text-slate-400 leading-normal">
-                        Visual analysis failed after strategic retries due to Gemini API rate limits or transient load.
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => onRunAudit(ReviewType.FULL_AUDIT)}
-                      className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-[10px] font-bold rounded-lg transition-all font-mono"
-                    >
-                      Retry Visual Audit
-                    </button>
-                  </div>
+          {/* MIDDLE COLUMN: Interactive Canvas Area */}
+          <main className="flex-1 bg-[#060609] flex flex-col relative overflow-hidden">
+            {/* Design Mockup Board */}
+            <div className="flex-1 min-h-0 relative">
+              <IssueCanvas 
+                issues={critiqReview?.issues || []} 
+                imageUrl={activeReport?.imageUrl || ''}
+                isUnavailable={activeReport?.isUnavailable}
+                onRetryAudit={handleRunFullAudit}
+              />
+              
+              {/* Floating MiniMap at bottom right */}
+              {critiqReview && !activeReport?.isUnavailable && (
+                <div className="absolute bottom-4 right-4 z-20 pointer-events-auto">
+                  <MiniMap imageUrl={activeReport?.imageUrl || ''} issues={critiqReview?.issues || []} />
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Bottom helper tip */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
-            <div className="px-4 py-1.5 bg-black/60 rounded-full text-[10px] font-mono border border-white/5 text-slate-400 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
-              Click hotspot pins on the mockup layout to inspect recommendations
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT: Detailed Findings & Feedback panel */}
-        <div className="w-96 border-l border-white/5 bg-[#0a0a0f]/90 backdrop-blur-xl flex flex-col overflow-hidden shrink-0 z-10">
-          
-          {/* Scoring Header wheel block */}
-          <div className="p-4 border-b border-white/5 bg-black/20 flex items-center justify-between shrink-0">
-            <span className="text-xs font-bold font-mono text-slate-400 uppercase tracking-wider">Audit Scorecard</span>
-            
-            {activeReport && (
-              <div className="px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-xl flex items-center gap-1.5">
-                <span className="text-[10px] font-mono text-indigo-300 font-bold">SCORE:</span>
-                <span className="text-xs font-mono font-bold text-white">
-                  {calculateReportScore(activeReport.issues).score}/100
-                </span>
+            {/* Bottom Toolbar & Status Bar */}
+            <footer className="h-12 border-t border-white/5 bg-[#08080b]/90 backdrop-blur-md px-4 flex items-center justify-between shrink-0 z-10 text-[10px] font-mono text-slate-400 select-none">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                  <span>Zoom Scale: <span className="text-white font-bold">{Math.round(scale * 100)}%</span></span>
+                </div>
+                <div className="h-3 w-px bg-white/10" />
+                <span>Detected Findings: <span className="text-white font-bold">{critiqReview?.issues.length || 0}</span></span>
               </div>
-            )}
-          </div>
 
-          {/* Scrollable content lists */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-5 custom-scrollbar">
-            
-            {/* Index rating scorecard */}
-            {activeReport ? (
-              <div className="p-4 bg-white/2 border border-white/5 rounded-2xl space-y-4 text-left">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <span className="text-[10px] text-indigo-400 font-mono uppercase tracking-wider font-semibold">Overall Design Score</span>
-                    <h4 className="text-4xl font-display font-semibold text-white mt-1">
-                      {calculateReportScore(activeReport.issues).score}
-                      <span className="text-sm font-mono text-slate-500 font-normal">/100</span>
-                    </h4>
-                  </div>
+              {/* Center status showing active issue */}
+              <div className="hidden md:block truncate max-w-sm text-slate-300">
+                {storeSelectedIssueId ? (
+                  <span className="flex items-center gap-2">
+                    <span className="text-indigo-400 font-bold">ACTIVE ISSUE:</span>
+                    <span className="text-white font-semibold truncate">{critiqReview?.issues.find(i => i.id === storeSelectedIssueId)?.title}</span>
+                  </span>
+                ) : (
+                  <span className="text-slate-500">Click any hotspot marker or list item to inspect...</span>
+                )}
+              </div>
 
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider ${
-                    calculateReportScore(activeReport.issues).score >= 80 
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                  }`}>
-                    {calculateReportScore(activeReport.issues).score >= 80 ? 'Grade A' : 'Needs Tuning'}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleExportReport}
+                  className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-white rounded-lg transition-colors border border-white/5 pointer-events-auto cursor-pointer font-bold"
+                  title="Export full audit JSON report"
+                >
+                  Export Report
+                </button>
+                <div className="h-3 w-px bg-white/10" />
+                <div className="flex items-center gap-2 pointer-events-auto">
+                  <CanvasControls />
+                  <ZoomControls onFitScreen={() => window.dispatchEvent(new CustomEvent('fit-canvas-to-screen'))} />
+                </div>
+                <div className="h-3 w-px bg-white/10" />
+                <span className="text-slate-500">Methodology v2.1</span>
+              </div>
+            </footer>
+          </main>
+
+          {/* RIGHT COLUMN: Issue Inspector Sidebar & Embedded Ask Critiq Expert Chat */}
+          <aside className="w-96 border-l border-white/5 bg-[#08080c] flex flex-col overflow-hidden shrink-0 z-10">
+            {/* Main scrollable list/detail panels */}
+            <div className="flex-1 overflow-y-auto p-4 min-h-0 custom-scrollbar">
+              {critiqReview ? (
+                <IssueSidebar issues={critiqReview.issues} />
+              ) : (
+                <div className="p-8 text-center text-xs text-slate-500 bg-white/2 rounded-2xl border border-white/5">
+                  No active findings or metrics generated yet. Run a layout analysis to populate.
+                </div>
+              )}
+            </div>
+
+            {/* Ask Critiq Expert AI Proxy Chat Container */}
+            <div className="p-4 border-t border-white/5 bg-black/45 shrink-0">
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="flex items-center gap-1.5">
+                  <Lightbulb className="w-4 h-4 text-indigo-400 animate-pulse" />
+                  <span className="text-[10px] font-mono font-bold text-indigo-300 uppercase tracking-wider">
+                    Ask Critiq Expert
                   </span>
                 </div>
+                <span className="text-[8px] font-mono text-slate-500">Local Expert Proxy</span>
+              </div>
 
-                <p className="text-sm leading-relaxed text-slate-200 bg-black/35 p-4 rounded-xl border border-white/5 font-normal">
-                  {activeReport.summary}
-                </p>
-
-                {/* AI Visual Observation Summary (Explainability and Traceability) */}
-                {activeReport.visualObservationSummary && (
-                  <div className="p-4 bg-indigo-950/20 border border-indigo-500/20 rounded-xl space-y-3">
-                    <div className="flex items-center gap-1.5">
-                      <Cpu className="w-3.5 h-3.5 text-indigo-400" />
-                      <span className="text-[11px] font-mono font-bold text-indigo-300 uppercase tracking-wider">AI Screen Observations</span>
+              {/* Chat history */}
+              <div 
+                ref={chatContainerRef}
+                className="h-28 overflow-y-auto space-y-3.5 pr-1 mb-3.5 custom-scrollbar text-left"
+              >
+                {chatHistory.map((msg) => (
+                  <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                    <div className={`max-w-[90%] p-2.5 rounded-xl text-xs leading-relaxed ${
+                      msg.sender === 'user' 
+                        ? 'bg-indigo-600/80 text-white rounded-tr-none' 
+                        : 'bg-white/5 text-slate-300 border border-white/5 rounded-tl-none'
+                    }`}>
+                      {msg.text}
                     </div>
-                    <div className="text-xs space-y-3 font-sans text-slate-200">
-                      <div>
-                        <span className="text-slate-500 font-bold font-mono text-[10px] uppercase tracking-wider block">Detected Layout</span>
-                        <span className="text-white font-semibold text-sm">{activeReport.visualObservationSummary.screenType}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 font-bold font-mono text-[10px] uppercase tracking-wider block">Primary Purpose</span>
-                        <span className="text-slate-200 text-sm leading-relaxed">{activeReport.visualObservationSummary.primaryPurpose}</span>
-                      </div>
-                      {activeReport.visualObservationSummary.visibleComponents && activeReport.visualObservationSummary.visibleComponents.length > 0 && (
-                        <div>
-                          <span className="text-slate-500 font-bold font-mono text-[10px] uppercase tracking-wider block mb-1.5">Visible Components</span>
-                          <div className="flex flex-wrap gap-1.5">
-                            {activeReport.visualObservationSummary.visibleComponents.map((comp: string, i: number) => (
-                              <span key={i} className="text-[10px] font-mono bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-md">
-                                {comp}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                  </div>
+                ))}
+                {isChatLoading && (
+                  <div className="flex items-center gap-1.5 text-slate-500 text-[10px] font-mono">
+                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce"></div>
+                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.2s]"></div>
+                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.4s]"></div>
                   </div>
                 )}
-
-
-
-                {/* Category Scores */}
-                {(() => {
-                  const { breakdown } = calculateReportScore(activeReport.issues);
-                  return (
-                    <div className="space-y-2 pt-2 border-t border-white/5">
-                      <span className="text-[10px] font-bold font-mono text-slate-400 uppercase tracking-widest block">
-                        Category Scores
-                      </span>
-                      <div className="grid grid-cols-2 gap-2">
-                        {Object.entries(breakdown).map(([key, cat]) => {
-                          const scorePct = (cat.score / cat.max) * 100;
-                          return (
-                            <div key={key} className="p-2.5 bg-black/25 rounded-xl border border-white/5 text-left">
-                              <span className="text-[9px] font-mono font-bold text-slate-400 block uppercase tracking-wider truncate">
-                                {cat.label}
-                              </span>
-                              <div className="flex items-center gap-2 mt-1.5">
-                                <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-indigo-500 rounded-full" 
-                                    style={{ width: `${scorePct}%` }}
-                                  />
-                                </div>
-                                <span className="text-xs font-mono font-bold text-slate-200">
-                                  {cat.score}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Issue Summary counts */}
-                {(() => {
-                  const criticalCount = activeReport.issues.filter(i => i.severity === 'critical').length;
-                  const highCount = activeReport.issues.filter(i => i.severity === 'high').length;
-                  const mediumCount = activeReport.issues.filter(i => i.severity === 'medium').length;
-                  const lowCount = activeReport.issues.filter(i => i.severity === 'low').length;
-
-                  return (
-                    <div className="pt-3 border-t border-white/5">
-                      <span className="text-[10px] font-bold font-mono text-slate-400 uppercase tracking-widest block mb-2">
-                        Issue Summary
-                      </span>
-                      <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                        <div className="flex justify-between items-center bg-rose-500/5 px-2.5 py-1.5 rounded-xl border border-rose-500/10">
-                          <span className="text-rose-400">Critical:</span>
-                          <span className="text-white font-bold">{criticalCount}</span>
-                        </div>
-                        <div className="flex justify-between items-center bg-red-500/5 px-2.5 py-1.5 rounded-xl border border-red-500/10">
-                          <span className="text-red-400">High:</span>
-                          <span className="text-white font-bold">{highCount}</span>
-                        </div>
-                        <div className="flex justify-between items-center bg-amber-500/5 px-2.5 py-1.5 rounded-xl border border-amber-500/10">
-                          <span className="text-amber-400">Medium:</span>
-                          <span className="text-white font-bold">{mediumCount}</span>
-                        </div>
-                        <div className="flex justify-between items-center bg-indigo-500/5 px-2.5 py-1.5 rounded-xl border border-indigo-500/10">
-                          <span className="text-indigo-400">Low:</span>
-                          <span className="text-white font-bold">{lowCount}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Top Recommendations */}
-                {(() => {
-                  const recs = [...activeReport.issues]
-                    .sort((a, b) => {
-                      const sevOrder: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
-                      return (sevOrder[b.severity] || 0) - (sevOrder[a.severity] || 0);
-                    })
-                    .map(i => i.recommendation)
-                    .filter((value, index, self) => self.indexOf(value) === index) // Unique list of recommendations
-                    .slice(0, 4);
-
-                  if (recs.length === 0) return null;
-
-                  return (
-                    <div className="pt-4 border-t border-white/5 space-y-2.5">
-                      <span className="text-[11px] font-bold font-mono text-slate-400 uppercase tracking-widest block">
-                        Top Recommendations
-                      </span>
-                      <ol className="space-y-2 text-sm text-slate-200">
-                        {recs.map((rec, idx) => (
-                          <li key={idx} className="flex gap-2.5 bg-emerald-500/5 border border-emerald-500/10 p-3 rounded-xl">
-                            <span className="text-emerald-400 font-mono font-bold text-sm">{idx + 1}.</span>
-                            <span className="leading-relaxed font-normal">{rec}</span>
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  );
-                })()}
               </div>
-            ) : (
-              <div className="p-6 text-center text-xs text-slate-500 bg-white/2 rounded-2xl border border-white/5">
-                No report data loaded. Execute audit using buttons above.
-              </div>
-            )}
 
-            {/* Accordion violation finding reports grouped by user-facing categories */}
-            {activeReport && activeReport.issues.length > 0 ? (
-              <div className="space-y-3">
-                <span className="text-[10px] font-bold font-mono text-slate-500 uppercase tracking-widest block text-left">
-                  Identified Concerns ({activeReport.issues.length})
-                </span>
-
-                <div className="space-y-3">
-                  {[
-                    { key: 'visualDesign', label: 'Visual Design' },
-                    { key: 'usability', label: 'Usability' },
-                    { key: 'accessibility', label: 'Accessibility' },
-                    { key: 'consistency', label: 'Consistency' }
-                  ].map((catDef) => {
-                    const catIssues = activeReport.issues.filter(issue => getIssueCategory(issue) === catDef.key);
-                    const isCatExpanded = expandedCategories[catDef.key];
-                    
-                    return (
-                      <div key={catDef.key} className="border border-white/5 rounded-2xl overflow-hidden bg-white/2">
-                        {/* Category Header Card */}
-                        <button
-                          onClick={() => setExpandedCategories(prev => ({ ...prev, [catDef.key]: !prev[catDef.key] }))}
-                          className="w-full flex items-center justify-between p-3.5 bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-left focus:outline-none"
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <span className={`w-2 h-2 rounded-full ${
-                              catDef.key === 'visualDesign' ? 'bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.5)]' : 
-                              catDef.key === 'usability' ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]' : 
-                              catDef.key === 'accessibility' ? 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.5)]' : 
-                              'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]'
-                            }`} />
-                            <span className="text-sm font-semibold text-slate-100">{catDef.label}</span>
-                            <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-white/5 text-slate-300 rounded-md">
-                              {catIssues.length}
-                            </span>
-                          </div>
-                          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isCatExpanded ? 'rotate-180' : ''}`} />
-                        </button>
-
-                        {/* Expandable Finding Cards */}
-                        {isCatExpanded && (
-                          <div className="p-3.5 space-y-3.5 border-t border-white/5 bg-black/10">
-                            {catIssues.length === 0 ? (
-                              <p className="text-xs text-slate-500 font-mono text-center py-2.5">No concerns found in this category</p>
-                            ) : (
-                              [...catIssues]
-                                .sort((a, b) => {
-                                  const priority: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
-                                  return (priority[b.severity] || 0) - (priority[a.severity] || 0);
-                                })
-                                .map((issue, idx) => {
-                                  const isSelected = selectedIssueId === issue.id;
-                                  const style = getSeverityStyle(issue.severity);
-                                  return (
-                                    <div
-                                      key={issue.id}
-                                      onClick={() => setSelectedIssueId(isSelected ? null : issue.id)}
-                                      className={`p-3.5 rounded-xl border transition-all cursor-pointer text-left ${
-                                        isSelected 
-                                          ? 'bg-[#12131a] border-indigo-500/40 shadow-xl' 
-                                          : 'bg-white/2 border-white/5 hover:bg-white/4'
-                                      }`}
-                                    >
-                                      <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2">
-                                          <span className={`w-5 h-5 rounded-lg flex items-center justify-center text-[10px] font-mono font-bold ${style.bg} text-white`}>
-                                            {idx + 1}
-                                          </span>
-                                          <span className="text-[10px] font-mono text-slate-400">
-                                            Confidence: {issue.confidence || 90}%
-                                          </span>
-                                        </div>
-
-                                        <span className={`px-2 py-0.5 text-[9px] font-mono font-bold uppercase rounded-lg ${style.badgeBg}`}>
-                                          {issue.severity}
-                                        </span>
-                                      </div>
-
-                                      <h5 className="text-sm font-semibold text-white mt-2.5 leading-snug">{issue.title}</h5>
-
-                                      {isSelected ? (
-                                        <div className="mt-4 pt-3.5 border-t border-white/5 space-y-3.5">
-                                          <div className="space-y-1">
-                                            <span className="text-[10px] font-bold font-mono text-slate-400 uppercase tracking-widest block">
-                                              Description:
-                                            </span>
-                                            <p className="text-sm text-slate-300 leading-relaxed font-normal">
-                                              {issue.description}
-                                            </p>
-                                          </div>
-
-                                          <div className="space-y-1">
-                                            <span className="text-[10px] font-bold font-mono text-emerald-400 uppercase tracking-widest block">
-                                              Recommendation:
-                                            </span>
-                                            <p className="text-sm leading-relaxed text-slate-100 bg-emerald-950/10 border border-emerald-500/10 p-3.5 rounded-xl font-normal">
-                                              {issue.recommendation}
-                                            </p>
-                                          </div>
-
-                                          <div className="p-2.5 bg-black/40 rounded-xl border border-white/5 text-[9px] font-mono text-slate-500">
-                                            <span className="text-slate-600 block uppercase tracking-wider font-bold">Rule Constraint Key:</span>
-                                            <span className="text-indigo-400 font-bold">{issue.ruleKey}</span>
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <div className="mt-1.5 text-[11px] font-mono text-indigo-400/80 flex items-center gap-1">
-                                          <span>Click to expand findings</span>
-                                          <ChevronRight className="w-3 h-3" />
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="p-6 text-center text-xs text-slate-500 bg-white/2 rounded-2xl border border-white/5">
-                No active guidelines concerns detected on current canvas viewport.
-              </div>
-            )}
-
-          </div>
-
-          {/* Embedded Ask Critiq Expert Chat Box */}
-          <div className="p-4 border-t border-white/5 bg-black/45 shrink-0">
-            <div className="flex items-center gap-1.5 mb-2.5">
-              <Lightbulb className="w-4 h-4 text-indigo-400 animate-pulse" />
-              <span className="text-[10px] font-mono font-bold text-indigo-300 uppercase tracking-wider">
-                Ask Critiq Expert
-              </span>
+              <form onSubmit={handleChatSubmit} className="relative">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ask e.g. How to correct 8px margins?"
+                  className="w-full bg-[#12131a] border border-white/10 rounded-xl py-2 px-3 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500/50"
+                />
+                <input type="submit" className="hidden" />
+                <button 
+                  type="submit"
+                  className="absolute right-2 top-2 p-1 bg-white/10 hover:bg-white/20 rounded-lg text-indigo-300 transition-colors"
+                >
+                  <Send className="w-3 h-3" />
+                </button>
+              </form>
             </div>
-
-            {/* Chat viewport block */}
-            <div 
-              ref={chatContainerRef}
-              className="h-28 overflow-y-auto space-y-3.5 pr-1 mb-3.5 custom-scrollbar text-left"
-            >
-              {chatHistory.map((msg) => (
-                <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`max-w-[90%] p-2.5 rounded-xl text-xs leading-relaxed ${
-                    msg.sender === 'user' 
-                      ? 'bg-indigo-600/80 text-white rounded-tr-none' 
-                      : 'bg-white/5 text-slate-300 border border-white/5 rounded-tl-none'
-                  }`}>
-                    {msg.text}
-                  </div>
-                </div>
-              ))}
-              {isChatLoading && (
-                <div className="flex items-center gap-1.5 text-slate-500 text-[10px] font-mono">
-                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce"></div>
-                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.2s]"></div>
-                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.4s]"></div>
-                </div>
-              )}
-            </div>
-
-            <form onSubmit={handleChatSubmit} className="relative">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Ask e.g. How to correct 8px margins?"
-                className="w-full bg-[#12131a] border border-white/10 rounded-xl py-2 px-3 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500/50"
-              />
-              <button 
-                type="submit"
-                className="absolute right-2 top-2 p-1 bg-white/10 hover:bg-white/20 rounded-lg text-indigo-300 transition-colors"
-              >
-                <Send className="w-3 h-3" />
-              </button>
-            </form>
-          </div>
+          </aside>
 
         </div>
-
-      </div>
 
       {/* Slide Drawer: Heuristics & Rules Engine Config */}
       <AnimatePresence>
@@ -901,137 +488,135 @@ export default function ReviewWorkspace({
 
                 {/* AI Provider selection */}
                 <div className="space-y-3">
-                  <div className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Cpu className="w-3.5 h-3.5 text-indigo-400" /> Active AI Model Core
-                  </div>
-                  <div className="grid grid-cols-1 gap-2">
+                  <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-widest block">Audit Core Intelligence Engine</span>
+                  <div className="grid grid-cols-3 gap-2">
                     {[
-                      { key: 'gemini', name: 'Gemini 2.5 Flash / Pro', desc: 'Default multimodal vision audit' },
-                      { key: 'claude', name: 'Claude 3.5 Sonnet', desc: 'In-depth interface structure mapping' },
-                      { key: 'chatgpt', name: 'GPT-4o Vision', desc: 'Fast spatial grid verification' }
-                    ].map((prov) => {
-                      const isActive = activeProvider === prov.key;
-                      return (
-                        <div
-                          key={prov.key}
-                          onClick={() => onSelectProvider(prov.key)}
-                          className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                            isActive 
-                              ? 'bg-indigo-600/10 border-indigo-500/40' 
-                              : 'bg-white/2 border-white/5 hover:bg-white/4'
-                          } flex items-center justify-between`}
-                        >
-                          <div>
-                            <span className="text-xs font-semibold text-white block">{prov.name}</span>
-                            <span className="text-[10px] text-slate-500 block">{prov.desc}</span>
-                          </div>
-                          {isActive && <Check className="w-4 h-4 text-indigo-400" />}
-                        </div>
-                      );
-                    })}
+                      { id: 'gemini', name: 'Critiq v2.1', desc: 'Gemini Pro API' },
+                      { id: 'claude', name: 'Critiq-C3.5', desc: 'Claude Sonnet' },
+                      { id: 'chatgpt', name: 'Critiq-G4', desc: 'GPT-4 Vision' }
+                    ].map((provider) => (
+                      <button
+                        key={provider.id}
+                        onClick={() => onSelectProvider(provider.id)}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          activeProvider === provider.id
+                            ? 'bg-indigo-600/10 border-indigo-500/50 text-white shadow-lg'
+                            : 'bg-[#12131b] border-white/5 text-slate-400 hover:border-white/10'
+                        }`}
+                      >
+                        <span className="text-xs font-bold block truncate">{provider.name}</span>
+                        <span className="text-[8px] font-mono text-slate-500 uppercase tracking-wider mt-0.5 block truncate">{provider.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-slate-500 font-normal leading-normal">
+                    Critiq uses a model router middleware. Selecting a specific provider prioritizes its inference logs during heuristic audits. Current active target is <span className="text-indigo-400 font-bold">{activeProviderName}</span>.
+                  </p>
+                </div>
+
+                {/* Contrast Heuristic Config */}
+                <div className="space-y-3.5 bg-white/2 p-4 rounded-2xl border border-white/5 text-left">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-white tracking-tight">WCAG Minimum Contrast Ratio</span>
+                    <span className="text-xs font-mono font-bold text-indigo-400">{contrastThreshold}:1</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="3.0"
+                    max="7.0"
+                    step="0.5"
+                    value={contrastThreshold}
+                    onChange={(e) => setContrastThreshold(parseFloat(e.target.value))}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  />
+                  <div className="flex justify-between text-[8px] font-mono text-slate-500 uppercase">
+                    <span>3.0:1 (WCAG AA Large)</span>
+                    <span>4.5:1 (WCAG AA Normal)</span>
+                    <span>7.0:1 (WCAG AAA Strict)</span>
                   </div>
                 </div>
 
-                {/* Severity penalty checklist */}
-                <div className="space-y-3">
-                  <div className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400" /> Heuristic Rule Penalties
+                {/* Touch Target Config */}
+                <div className="space-y-3.5 bg-white/2 p-4 rounded-2xl border border-white/5 text-left">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-white tracking-tight">Minimum Touch Target Height</span>
+                    <span className="text-xs font-mono font-bold text-indigo-400">{minTouchTargetSize}px</span>
                   </div>
+                  <input
+                    type="range"
+                    min="36"
+                    max="56"
+                    step="4"
+                    value={minTouchTargetSize}
+                    onChange={(e) => setMinTouchTargetSize(parseInt(e.target.value))}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  />
+                  <div className="flex justify-between text-[8px] font-mono text-slate-500 uppercase">
+                    <span>36px (Material Compact)</span>
+                    <span>44px (Apple iOS HIG)</span>
+                    <span>48px (Google Android HIG)</span>
+                    <span>56px (High Accessibility)</span>
+                  </div>
+                </div>
 
-                  <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
-                    {/* Category: UX Rules */}
-                    <div className="space-y-2">
-                      <span className="text-[9px] font-mono font-bold text-indigo-400 uppercase tracking-widest block mb-1">UX Laws</span>
-                      {rules.filter(r => r.category === 'UX_RULES').map((rule) => (
-                        <div key={rule.key} className="p-3 bg-white/2 border border-white/5 rounded-xl space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                id={`drawer-${rule.key}`}
-                                checked={rule.enabled}
-                                onChange={() => onToggleRule(rule.key)}
-                                className="rounded border-white/10 bg-black/40 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
-                              />
-                              <label htmlFor={`drawer-${rule.key}`} className="text-xs font-semibold text-white cursor-pointer select-none">
-                                {rule.title}
-                              </label>
-                            </div>
-                            <span className="text-[10px] font-mono text-indigo-300 font-bold bg-indigo-500/10 px-1.5 rounded">
-                              Weight: {rule.weight}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-slate-500 leading-normal pl-5">{rule.description}</p>
-                          
-                          {rule.enabled && (
-                            <div className="flex items-center gap-2 pl-5 pt-1">
-                              <span className="text-[9px] text-slate-500 font-mono">Penalty:</span>
-                              <input
-                                type="range"
-                                min="1"
-                                max="5"
-                                value={rule.weight}
-                                onChange={(e) => onUpdateWeight(rule.key, parseInt(e.target.value))}
-                                className="flex-1 h-1 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                              />
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                {/* Strict Grid Rules Toggles */}
+                <div className="space-y-3 bg-white/2 p-4 rounded-2xl border border-white/5 text-left">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-semibold text-white tracking-tight block">Enforce 8px Spacing Grid</span>
+                      <span className="text-[9px] text-slate-400 leading-normal block mt-0.5">Flag sub-elements and margins that break 8px geometric pacing</span>
                     </div>
+                    <button
+                      onClick={() => setStrictGridRules(!strictGridRules)}
+                      className={`w-9 h-5 rounded-full transition-colors relative flex items-center p-0.5 ${strictGridRules ? 'bg-indigo-600' : 'bg-white/10'}`}
+                    >
+                      <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${strictGridRules ? 'translate-x-4' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+                </div>
 
-                    {/* Category: UI Rules */}
-                    <div className="space-y-2 pt-2">
-                      <span className="text-[9px] font-mono font-bold text-indigo-400 uppercase tracking-widest block mb-1">UI Standards</span>
-                      {rules.filter(r => r.category === 'UI_RULES').map((rule) => (
-                        <div key={rule.key} className="p-3 bg-white/2 border border-white/5 rounded-xl space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                id={`drawer-${rule.key}`}
-                                checked={rule.enabled}
-                                onChange={() => onToggleRule(rule.key)}
-                                className="rounded border-white/10 bg-black/40 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
-                              />
-                              <label htmlFor={`drawer-${rule.key}`} className="text-xs font-semibold text-white cursor-pointer select-none">
-                                {rule.title}
-                              </label>
-                            </div>
-                            <span className="text-[10px] font-mono text-indigo-300 font-bold bg-indigo-500/10 px-1.5 rounded">
-                              Weight: {rule.weight}
-                            </span>
+                {/* Cognitive load checklist configuration */}
+                <div className="space-y-3.5 bg-white/2 p-4 rounded-2xl border border-white/5 text-left">
+                  <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-widest block">Cognitive & Hierarchy Rules Set</span>
+                  <div className="space-y-2">
+                    {[
+                      { id: 'wcag-2.1', name: 'WCAG 2.1 AA Checklist', desc: 'Default compliance suite for structural content flow' },
+                      { id: 'nielsen', name: 'Nielsen 10 Usability Heuristics', desc: 'Focuses on user control, consistency, and error prevention' },
+                      { id: 'fitts-hick', name: 'Fitts & Hick Interaction Laws', desc: 'Mathematical modeling of layouts for conversion & focus' }
+                    ].map((ruleset) => (
+                      <div 
+                        key={ruleset.id}
+                        onClick={() => setHierarchyRulesVersion(ruleset.id)}
+                        className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                          heirarchyRulesVersion === ruleset.id
+                            ? 'bg-[#12131b] border-indigo-500/40'
+                            : 'bg-transparent border-white/3 hover:border-white/5'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center ${heirarchyRulesVersion === ruleset.id ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-600'}`}>
+                            {heirarchyRulesVersion === ruleset.id && <div className="w-1 h-1 rounded-full bg-white" />}
                           </div>
-                          <p className="text-[10px] text-slate-500 leading-normal pl-5">{rule.description}</p>
-                          
-                          {rule.enabled && (
-                            <div className="flex items-center gap-2 pl-5 pt-1">
-                              <span className="text-[9px] text-slate-500 font-mono">Penalty:</span>
-                              <input
-                                type="range"
-                                min="1"
-                                max="5"
-                                value={rule.weight}
-                                onChange={(e) => onUpdateWeight(rule.key, parseInt(e.target.value))}
-                                className="flex-1 h-1 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                              />
-                            </div>
-                          )}
+                          <span className="text-[11px] font-semibold text-white">{ruleset.name}</span>
                         </div>
-                      ))}
-                    </div>
+                        <p className="text-[9px] text-slate-400 mt-1 leading-normal ml-5">{ruleset.desc}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
               </div>
 
-              {/* Drawer footer close button */}
-              <button
-                onClick={() => setShowSettingsDrawer(false)}
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all font-mono"
-              >
-                Apply Constraints
-              </button>
+              {/* Apply settings controls */}
+              <div className="pt-4 border-t border-white/5 flex gap-3">
+                <button 
+                  onClick={() => setShowSettingsDrawer(false)}
+                  className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-mono text-xs font-bold rounded-xl transition-all"
+                >
+                  Save & Apply Settings
+                </button>
+              </div>
+
             </motion.div>
           </>
         )}
@@ -1039,4 +624,4 @@ export default function ReviewWorkspace({
 
     </div>
   );
-}
+};
