@@ -83,10 +83,10 @@ export default function IssueDetails({ issue, filteredIssues }: IssueDetailsProp
   const currentStatusObj = statusOptions.find(o => o.value === currentStatus) || statusOptions[0];
 
   return (
-    <div className="space-y-4 bg-black/20 p-4 rounded-2xl border border-white/5 relative">
+    <div className="space-y-5 bg-black/20 p-5 rounded-2xl border border-white/5 relative">
       {/* Index Navigation & Dismiss header */}
-      <div className="flex justify-between items-center pb-2.5 border-b border-white/5">
-        <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider">
+      <div className="flex justify-between items-center pb-3 border-b border-white/5">
+        <span className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider">
           Audit Item {currentIndex + 1} of {totalCount}
         </span>
         
@@ -112,19 +112,19 @@ export default function IssueDetails({ issue, filteredIssues }: IssueDetailsProp
 
       {/* Title & Metadata badges */}
       <div className="space-y-2">
-        <h3 className="text-sm font-bold text-white tracking-tight leading-snug">
+        <h3 className="text-base font-bold text-white tracking-tight leading-snug">
           {issue.title}
         </h3>
         
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className={`px-2 py-0.5 text-[9px] font-mono font-black uppercase rounded-lg border ${getSeverityBadge(issue.severity)}`}>
+          <span className={`px-2 py-0.5 text-xs font-mono font-black uppercase rounded-lg border ${getSeverityBadge(issue.severity)}`}>
             {issue.severity}
           </span>
-          <span className="bg-black/30 border border-white/5 text-slate-400 text-[9px] font-mono font-bold px-2 py-0.5 rounded-lg">
+          <span className="bg-black/30 border border-white/5 text-slate-300 text-xs font-mono font-bold px-2 py-0.5 rounded-lg">
             Conf: {issue.confidence}%
           </span>
           {issue.category && (
-            <span className="bg-indigo-950/20 border border-indigo-500/15 text-indigo-300 text-[9px] font-mono font-bold px-2 py-0.5 rounded-lg">
+            <span className="bg-indigo-950/20 border border-indigo-500/15 text-indigo-300 text-xs font-mono font-bold px-2 py-0.5 rounded-lg">
               {issue.category}
             </span>
           )}
@@ -133,13 +133,13 @@ export default function IssueDetails({ issue, filteredIssues }: IssueDetailsProp
 
       {/* Resolution status manager */}
       <div className="relative">
-        <label className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-wider block mb-1">
+        <label className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider block mb-1">
           Resolution Workflow
         </label>
         
         <button
           onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-          className="w-full flex items-center justify-between px-3 py-2 bg-black/40 border border-white/5 rounded-xl text-xs text-white hover:border-white/15 hover:bg-black/60 transition-all font-medium"
+          className="w-full flex items-center justify-between px-3.5 py-2.5 bg-black/40 border border-white/5 rounded-xl text-xs text-white hover:border-white/15 hover:bg-black/60 transition-all font-medium"
         >
           <div className="flex items-center gap-2">
             {currentStatusObj.icon}
@@ -154,7 +154,7 @@ export default function IssueDetails({ issue, filteredIssues }: IssueDetailsProp
               <button
                 key={opt.value}
                 onClick={() => handleStatusChange(opt.value)}
-                className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-left transition-colors ${
+                className={`w-full flex items-center gap-2.5 px-4 py-3 text-xs text-left transition-colors ${
                   currentStatus === opt.value
                     ? 'bg-indigo-600 text-white'
                     : 'text-slate-300 hover:bg-white/5 hover:text-white'
@@ -169,11 +169,11 @@ export default function IssueDetails({ issue, filteredIssues }: IssueDetailsProp
       </div>
 
       {/* Details Tabs */}
-      <div className="space-y-3">
-        <div className="flex border-b border-white/5 p-0.5 bg-black/40 rounded-xl">
+      <div className="space-y-3.5">
+        <div className="flex border-b border-white/5 p-1 bg-black/40 rounded-xl">
           <button
             onClick={() => setActiveTab('evidence')}
-            className={`flex-1 py-1.5 text-[10px] font-mono font-bold uppercase rounded-lg transition-all ${
+            className={`flex-1 py-2 text-xs font-mono font-bold uppercase rounded-lg transition-all ${
               activeTab === 'evidence'
                 ? 'bg-indigo-600/10 text-indigo-300 border border-indigo-500/20 font-black'
                 : 'text-slate-400 hover:text-white'
@@ -183,7 +183,7 @@ export default function IssueDetails({ issue, filteredIssues }: IssueDetailsProp
           </button>
           <button
             onClick={() => setActiveTab('solution')}
-            className={`flex-1 py-1.5 text-[10px] font-mono font-bold uppercase rounded-lg transition-all ${
+            className={`flex-1 py-2 text-xs font-mono font-bold uppercase rounded-lg transition-all ${
               activeTab === 'solution'
                 ? 'bg-indigo-600/10 text-indigo-300 border border-indigo-500/20 font-black'
                 : 'text-slate-400 hover:text-white'
@@ -193,7 +193,7 @@ export default function IssueDetails({ issue, filteredIssues }: IssueDetailsProp
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={`flex-1 py-1.5 text-[10px] font-mono font-bold uppercase rounded-lg transition-all ${
+            className={`flex-1 py-2 text-xs font-mono font-bold uppercase rounded-lg transition-all ${
               activeTab === 'history'
                 ? 'bg-indigo-600/10 text-indigo-300 border border-indigo-500/20 font-black'
                 : 'text-slate-400 hover:text-white'

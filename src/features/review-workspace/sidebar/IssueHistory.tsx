@@ -18,8 +18,8 @@ export default function IssueHistory({ issueId }: IssueHistoryProps) {
   if (history.length === 0) {
     return (
       <div className="py-4 text-center rounded-xl bg-black/25 border border-white/5">
-        <span className="text-[10px] font-mono text-slate-500 block uppercase">No activity history logs</span>
-        <span className="text-[9px] text-slate-600 font-normal leading-normal mt-0.5 block px-3">
+        <span className="text-xs font-mono text-slate-400 block uppercase">No activity history logs</span>
+        <span className="text-xs text-slate-500 font-normal leading-normal mt-0.5 block px-3">
           Status changes and logs will appear here.
         </span>
       </div>
@@ -38,31 +38,31 @@ export default function IssueHistory({ issueId }: IssueHistoryProps) {
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex items-center gap-1.5 pb-1 border-b border-white/5">
         <Clock className="w-3 h-3 text-slate-500" />
-        <span className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+        <span className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider">
           Activity Trail Logs
         </span>
       </div>
-      <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+      <div className="space-y-2.5 max-h-48 overflow-y-auto custom-scrollbar pr-1">
         {history.map((entry, idx) => (
-          <div key={idx} className="p-2.5 bg-black/30 rounded-xl border border-white/5 space-y-1">
+          <div key={idx} className="p-3 bg-black/30 rounded-xl border border-white/5 space-y-1.5">
             <div className="flex justify-between items-start gap-2">
-              <span className={`px-1.5 py-0.5 text-[8px] font-mono font-black uppercase rounded ${getStatusColor(entry.status)}`}>
+              <span className={`px-1.5 py-0.5 text-[10px] font-mono font-black uppercase rounded ${getStatusColor(entry.status)}`}>
                 {entry.status.replace('_', ' ')}
               </span>
-              <span className="text-[8px] font-mono text-slate-500">
+              <span className="text-[10px] font-mono text-slate-400">
                 {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
             </div>
             
-            <p className="text-[10px] text-slate-300 font-normal leading-normal">
+            <p className="text-xs text-slate-300 font-normal leading-normal">
               {entry.note}
             </p>
 
-            <div className="flex items-center gap-1 text-[8px] font-mono text-slate-500 pt-0.5">
-              <User className="w-2.5 h-2.5 text-slate-600" />
+            <div className="flex items-center gap-1 text-[10px] font-mono text-slate-400 pt-1">
+              <User className="w-2.5 h-2.5 text-slate-500" />
               <span>By {entry.user}</span>
             </div>
           </div>

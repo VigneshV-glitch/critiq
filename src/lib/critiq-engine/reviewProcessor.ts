@@ -21,7 +21,8 @@ export class ReviewProcessor {
     rawIssues: any[],
     screenModel: ScreenModel,
     analysisDurationMs: number,
-    customId?: string
+    customId?: string,
+    weightProfile?: any
   ): CritiqReview {
     // 1. Normalize and merge duplicate issues
     const normalized = IssueNormalizer.normalizeAndMerge(rawIssues);
@@ -44,7 +45,7 @@ export class ReviewProcessor {
       : 95;
 
     // 6. Calculate comprehensive Design Health scorecard
-    const designHealth = DesignHealthEngine.calculate(prioritized, avgConfidence);
+    const designHealth = DesignHealthEngine.calculate(prioritized, avgConfidence, weightProfile);
 
     // 7. Assemble professional executive summary (Critiq Platform Voice)
     const summary = ReviewSummaryBuilder.buildSummary(screenModel, prioritized);

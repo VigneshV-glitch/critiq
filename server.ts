@@ -717,7 +717,15 @@ Do NOT enforce any specific brand design system or guidelines. Focus purely on g
     return res.json(finalReport);
 
   } catch (err: any) {
-    console.error('Error in analyze API after retries, returning fallback simulated report:', err);
+    const errStr = String(err?.message || err || '').toLowerCase();
+    const status = err?.status || err?.statusCode || 0;
+    const isRateLimit = status === 429 || errStr.includes('429') || errStr.includes('quota') || errStr.includes('exhausted') || errStr.includes('rate limit') || errStr.includes('resource_exhausted');
+
+    if (isRateLimit) {
+      console.warn('[Critiq Backend] Gemini free-tier rate limit reached. Returning high-quality simulated analysis fallback.');
+    } else {
+      console.error('Error in analyze API after retries, returning fallback simulated report:', err);
+    }
     
     // Resilient fallback: Return high-quality simulated analysis instead of an error response
     const fallbackReport = getSimulatedAnalysis(

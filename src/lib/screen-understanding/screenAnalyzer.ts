@@ -383,8 +383,16 @@ Return the completed layout parsing as a structured JSON matching the provided s
       }
 
       return screenModel;
-    } catch (err) {
-      console.error('[Screen Understanding] Failed during live Gemini understanding, loading simulated model:', err);
+    } catch (err: any) {
+      const errStr = String(err?.message || err || '').toLowerCase();
+      const status = err?.status || err?.statusCode || 0;
+      const isRateLimit = status === 429 || errStr.includes('429') || errStr.includes('quota') || errStr.includes('exhausted') || errStr.includes('rate limit') || errStr.includes('resource_exhausted');
+
+      if (isRateLimit) {
+        console.warn('[Screen Understanding] Gemini free-tier rate limit reached. Seamlessly loading simulated ScreenModel fallback.');
+      } else {
+        console.error('[Screen Understanding] Failed during live Gemini understanding, loading simulated model:', err);
+      }
       return this.getSimulatedScreenModel(imageSrc, fileName);
     }
   }

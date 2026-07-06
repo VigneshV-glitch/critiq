@@ -9,7 +9,7 @@ export class DesignHealthEngine {
   /**
    * Calculate Design Health scores entirely from verified issues
    */
-  public static calculate(issues: CritiqIssue[], averageConfidence: number): DesignHealth {
+  public static calculate(issues: CritiqIssue[], averageConfidence: number, weightProfile?: any): DesignHealth {
     // 1. Initialize all categories with 100 baseline
     let uxBase = 100;
     let uiBase = 100;
@@ -162,10 +162,41 @@ export class DesignHealthEngine {
       return `Low enterprise utility. Complex charts, data views, or table systems lack the alignment, gutters, and density guidelines to scale.`;
     };
 
-    // 6. Overall Design Health is the average of categories
-    const overallScore = Math.round(
-      (uxVal + uiVal + a11yVal + visualVal + interactionVal + contentVal + mobileVal + enterpriseVal) / 8
-    );
+    // 6. Overall Design Health is the weighted average of categories
+    let overallScore = 0;
+    if (weightProfile) {
+      const weights = {
+        ux: weightProfile.usability ?? 12.5,
+        ui: weightProfile.designSystem ?? 12.5,
+        accessibility: weightProfile.accessibility ?? 12.5,
+        visual: weightProfile.visualDesign ?? 12.5,
+        interaction: weightProfile.interaction ?? 12.5,
+        content: weightProfile.content ?? 12.5,
+        mobile: weightProfile.mobileUX ?? 12.5,
+        enterprise: weightProfile.enterpriseUX ?? 12.5,
+      };
+      const totalWeight = Object.values(weights).reduce((sum: number, w: any) => sum + (typeof w === 'number' ? w : 0), 0);
+      if (totalWeight > 0) {
+        overallScore = Math.round(
+          (uxVal * weights.ux +
+           uiVal * weights.ui +
+           a11yVal * weights.accessibility +
+           visualVal * weights.visual +
+           interactionVal * weights.interaction +
+           contentVal * weights.content +
+           mobileVal * weights.mobile +
+           enterpriseVal * weights.enterprise) / totalWeight
+        );
+      } else {
+        overallScore = Math.round(
+          (uxVal + uiVal + a11yVal + visualVal + interactionVal + contentVal + mobileVal + enterpriseVal) / 8
+        );
+      }
+    } else {
+      overallScore = Math.round(
+        (uxVal + uiVal + a11yVal + visualVal + interactionVal + contentVal + mobileVal + enterpriseVal) / 8
+      );
+    }
 
     const overallExplanation = (score: number): string => {
       if (score >= 90) return 'Excellent. The screen presents an exceptionally polished and highly accessible interface, following refined UX/UI guidelines.';

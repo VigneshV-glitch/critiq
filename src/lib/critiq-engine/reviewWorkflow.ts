@@ -24,7 +24,8 @@ export class ReviewWorkflow {
   public async execute(
     imageSrc: string,
     customPrompt?: string,
-    customReviewId?: string
+    customReviewId?: string,
+    weightProfile?: any
   ): Promise<CritiqReview> {
     const startTime = Date.now();
     console.log('[Critiq Workflow] Starting professional visual review pipeline...');
@@ -47,7 +48,8 @@ export class ReviewWorkflow {
       multiAgentReport.prioritizedIssues,
       screenModel,
       durationMs,
-      customReviewId
+      customReviewId,
+      weightProfile
     );
 
     console.log('[Critiq Workflow] Visual layout review compiled successfully.');

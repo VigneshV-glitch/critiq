@@ -20,7 +20,7 @@ export default function IssueSearch() {
         value={searchQuery}
         onChange={(e) => filterActions.setSearchQuery(e.target.value)}
         placeholder="Search title, description, category..."
-        className="w-full pl-9 pr-8 py-2 bg-black/40 border border-white/5 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 focus:bg-black/60 transition-all font-normal"
+        className="w-full pl-9 pr-8 py-2.5 bg-black/40 border border-white/5 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 focus:bg-black/60 transition-all font-normal"
         aria-label="Search review findings"
       />
       {searchQuery && (

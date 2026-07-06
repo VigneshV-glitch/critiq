@@ -105,7 +105,7 @@ export default function IssueCanvas({
   };
 
   return (
-    <div className="relative w-full h-full flex flex-col bg-[#07070a] border border-white/5 overflow-hidden">
+    <div className="relative w-full h-full flex flex-col bg-transparent border border-white/5 overflow-hidden">
       
       {/* Interactive viewport mapping */}
       <div className="flex-1 min-h-0 relative">

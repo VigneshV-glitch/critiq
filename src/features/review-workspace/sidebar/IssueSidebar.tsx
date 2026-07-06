@@ -128,7 +128,7 @@ export default function IssueSidebar({ issues }: IssueSidebarProps) {
             </span>
             <button
               onClick={() => selectionActions.selectIssue(null)}
-              className="text-[10px] font-mono text-indigo-400 hover:text-white font-bold cursor-pointer"
+              className="text-xs font-mono text-indigo-400 hover:text-white font-bold cursor-pointer"
             >
               ← OVERVIEW
             </button>
@@ -141,30 +141,30 @@ export default function IssueSidebar({ issues }: IssueSidebarProps) {
         <div className="space-y-4 flex flex-col h-full min-h-0">
           
           {/* Quick Metrics Header */}
-          <div className="grid grid-cols-2 gap-2 shrink-0">
-            <div className="p-3 bg-black/25 rounded-2xl border border-white/5 space-y-1">
-              <span className="text-[8px] font-mono font-bold text-slate-500 block tracking-wider uppercase">
+          <div className="grid grid-cols-2 gap-3 shrink-0">
+            <div className="p-3.5 bg-black/25 rounded-2xl border border-white/5 space-y-1.5">
+              <span className="text-[10px] font-mono font-bold text-slate-400 block tracking-wider uppercase">
                 RESOLVED FINDINGS
               </span>
-              <div className="flex items-baseline gap-1">
-                <span className="text-base font-mono font-black text-white">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-mono font-black text-white">
                   {stats.resolvedCount}
                 </span>
-                <span className="text-[10px] text-slate-500 font-mono">
+                <span className="text-xs text-slate-400 font-mono">
                   / {stats.total}
                 </span>
               </div>
             </div>
 
-            <div className="p-3 bg-black/25 rounded-2xl border border-white/5 space-y-1">
-              <span className="text-[8px] font-mono font-bold text-slate-500 block tracking-wider uppercase">
+            <div className="p-3.5 bg-black/25 rounded-2xl border border-white/5 space-y-1.5">
+              <span className="text-[10px] font-mono font-bold text-slate-400 block tracking-wider uppercase">
                 HEALTH GRADE
               </span>
-              <div className="flex items-baseline gap-1">
-                <span className="text-base font-mono font-black text-rose-400">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-mono font-black text-rose-400">
                   {stats.criticalCount > 0 ? 'FAIL' : stats.highCount > 2 ? 'C+' : 'A'}
                 </span>
-                <span className="text-[9px] text-slate-500 font-normal">
+                <span className="text-[10px] text-slate-400 font-normal">
                   {stats.criticalCount} Critical
                 </span>
               </div>
@@ -178,7 +178,7 @@ export default function IssueSidebar({ issues }: IssueSidebarProps) {
               <span>Issues ({filteredIssues.length})</span>
             </div>
             {filteredIssues.length !== issues.length && (
-              <span className="text-[9px] font-mono text-indigo-400 font-bold bg-indigo-500/10 px-2 py-0.5 rounded-lg">
+              <span className="text-[10px] font-mono text-indigo-400 font-bold bg-indigo-500/10 px-2 py-0.5 rounded-lg">
                 Filtered
               </span>
             )}
@@ -191,7 +191,7 @@ export default function IssueSidebar({ issues }: IssueSidebarProps) {
                 <LayoutTemplate className="w-8 h-8 text-slate-700 mx-auto" />
                 <div className="space-y-0.5">
                   <p className="text-xs font-mono font-bold text-slate-400 uppercase">No issues matched filters</p>
-                  <p className="text-[10px] text-slate-600 font-normal leading-normal max-w-[200px] mx-auto">
+                  <p className="text-xs text-slate-400 font-normal leading-normal max-w-[200px] mx-auto">
                     Try loosening your search terms or expanding your filter rules in the left panel.
                   </p>
                 </div>
@@ -209,35 +209,35 @@ export default function IssueSidebar({ issues }: IssueSidebarProps) {
                     onClick={() => selectionActions.selectIssue(issue.id)}
                     onMouseEnter={() => selectionActions.hoverIssue(issue.id)}
                     onMouseLeave={() => selectionActions.hoverIssue(null)}
-                    className={`p-3 rounded-2xl border transition-all cursor-pointer text-left flex gap-3 select-none ${
+                    className={`p-4 rounded-2xl border transition-all cursor-pointer text-left flex gap-3.5 select-none ${
                       isHovered
                         ? 'bg-indigo-600/5 border-indigo-500/20 shadow-[0_0_12px_rgba(99,102,241,0.1)]'
                         : 'bg-black/20 border-white/5 hover:bg-black/40 hover:border-white/10'
                     }`}
                   >
                     {/* Index Circle Indicator */}
-                    <div className="w-5.5 h-5.5 rounded-full bg-slate-800 border border-white/10 text-[9px] font-mono font-black flex items-center justify-center text-slate-300 shrink-0">
+                    <div className="w-6 h-6 rounded-full bg-slate-800 border border-white/10 text-xs font-mono font-black flex items-center justify-center text-slate-300 shrink-0">
                       {index}
                     </div>
 
                     {/* Meta info */}
-                    <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="flex-1 min-w-0 space-y-2">
                       <div className="flex justify-between items-start gap-2">
-                        <h4 className="text-[11px] font-bold text-white tracking-tight leading-normal truncate">
+                        <h4 className="text-xs md:text-sm font-semibold text-white tracking-tight leading-normal truncate">
                           {issue.title}
                         </h4>
                         {getStatusIndicator(status)}
                       </div>
 
-                      <p className="text-[10px] text-slate-400 font-normal leading-normal line-clamp-2">
+                      <p className="text-xs text-slate-300 font-normal leading-normal line-clamp-2">
                         {issue.description}
                       </p>
 
-                      <div className="flex items-center gap-1.5 pt-0.5">
-                        <span className={`px-1.5 py-0.5 text-[8px] font-mono font-black uppercase rounded border ${getSeverityPill(issue.severity)}`}>
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className={`px-1.5 py-0.5 text-[9px] font-mono font-black uppercase rounded border ${getSeverityPill(issue.severity)}`}>
                           {issue.severity}
                         </span>
-                        <span className="text-[8px] text-slate-500 font-mono">
+                        <span className="text-[10px] text-slate-400 font-mono">
                           Conf: {issue.confidence}%
                         </span>
                       </div>

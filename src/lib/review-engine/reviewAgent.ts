@@ -145,8 +145,17 @@ STRICT COMPLIANCE DIRECTIVES:
         detectedIssues: cleanedIssues
       };
 
-    } catch (error) {
-      console.error(`[Review Agent: ${this.name}] Error during evaluation:`, error);
+    } catch (error: any) {
+      const errStr = String(error?.message || error || '').toLowerCase();
+      const status = error?.status || error?.statusCode || 0;
+      const isRateLimit = status === 429 || errStr.includes('429') || errStr.includes('quota') || errStr.includes('exhausted') || errStr.includes('rate limit') || errStr.includes('resource_exhausted');
+
+      if (isRateLimit) {
+        console.warn(`[Review Agent: ${this.name}] Gemini free-tier rate limit reached. Seamlessly falling back to local heuristic analysis.`);
+      } else {
+        console.error(`[Review Agent: ${this.name}] Error during evaluation:`, error);
+      }
+
       const fallbackIssues = this.getDeterministicFallback(screenModel);
       return {
         agentName: this.name,

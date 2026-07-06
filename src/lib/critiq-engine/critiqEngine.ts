@@ -24,9 +24,10 @@ export class CritiqEngine {
   public async reviewMockup(
     imageSrc: string,
     customPrompt?: string,
-    customReviewId?: string
+    customReviewId?: string,
+    weightProfile?: any
   ): Promise<CritiqReview> {
-    return this.workflow.execute(imageSrc, customPrompt, customReviewId);
+    return this.workflow.execute(imageSrc, customPrompt, customReviewId, weightProfile);
   }
 
   /**
@@ -36,8 +37,9 @@ export class CritiqEngine {
     rawIssues: any[],
     screenModel: ScreenModel,
     durationMs: number,
-    customReviewId?: string
+    customReviewId?: string,
+    weightProfile?: any
   ): CritiqReview {
-    return ReviewProcessor.process(rawIssues, screenModel, durationMs, customReviewId);
+    return ReviewProcessor.process(rawIssues, screenModel, durationMs, customReviewId, weightProfile);
   }
 }
